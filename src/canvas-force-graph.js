@@ -330,34 +330,85 @@ export default Kapsule({
           // Construct bezier for curved lines
           const bzLine = link.__controlPoints && new Bezier(start.x, start.y, ...link.__controlPoints, end.x, end.y);
 
-          const getCoordsAlongLine = bzLine
-              ? t => bzLine.get(t) // get position along bezier line
-              : t => ({            // straight line: interpolate linearly
-                x: start.x + (end.x - start.x) * t || 0,
-                y: start.y + (end.y - start.y) * t || 0
-              });
-
-          const lineLen = bzLine
-            ? bzLine.length()
-            : Math.sqrt(Math.pow(end.x - start.x, 2) + Math.pow(end.y - start.y, 2));
-
-          const posAlongLine = startR + arrowLength + (lineLen - startR - endR - arrowLength) * arrowRelPos;
-
-          const arrowHead = getCoordsAlongLine(posAlongLine / lineLen);
-          const arrowTail = getCoordsAlongLine((posAlongLine - arrowLength) / lineLen);
-          const arrowTailVertex = getCoordsAlongLine((posAlongLine - arrowLength * (1 - ARROW_VLEN_RATIO)) / lineLen);
-
-          const arrowTailAngle = Math.atan2(arrowHead.y - arrowTail.y, arrowHead.x - arrowTail.x) - Math.PI / 2;
-
           ctx.beginPath();
 
-          ctx.moveTo(arrowHead.x, arrowHead.y);
-          ctx.lineTo(arrowTail.x + arrowHalfWidth * Math.cos(arrowTailAngle), arrowTail.y + arrowHalfWidth * Math.sin(arrowTailAngle));
-          ctx.lineTo(arrowTailVertex.x, arrowTailVertex.y);
-          ctx.lineTo(arrowTail.x - arrowHalfWidth * Math.cos(arrowTailAngle), arrowTail.y - arrowHalfWidth * Math.sin(arrowTailAngle));
+          if (bzLine) {
+            const RESOLUTION = 7;
+            const lut = bzLine.getLUT(20);
+            getT(Infinity, lut);
+            var d = lut[lut.length - 1]._d - startR - arrowLength - endR;
+            if (0 <= d) {
+              const tailD = startR + d * arrowRelPos;
+              const step = arrowLength / RESOLUTION;
+              var t, point, normal;
+              var leftX = [], leftY = [], rightX = [], rightY = [];
+              for (var i = 0; i < RESOLUTION; i++) {
+                t = getT(tailD + i * step, lut);
+                point = bzLine.get(t);
+                normal = bzLine.normal(t);
+                d = (RESOLUTION - i) * (arrowHalfWidth / RESOLUTION);
+                leftX.push(point.x - normal.x * d);
+                leftY.push(point.y - normal.y * d);
+                rightX.push(point.x + normal.x * d);
+                rightY.push(point.y + normal.y * d);
+              }
+              leftX.reverse();
+              leftY.reverse();
 
+              ctx.moveTo(leftX.pop(), leftY.pop());
+              while (leftX.length) {
+                ctx.lineTo(leftX.pop(), leftY.pop());
+              }
+              point = bzLine.get(getT(tailD + arrowLength, lut));
+              ctx.lineTo(point.x, point.y);
+              while (rightX.length) {
+                ctx.lineTo(rightX.pop(), rightY.pop());
+              }
+              point = bzLine.get(getT(tailD + arrowLength * ARROW_VLEN_RATIO, lut));
+              ctx.lineTo(point.x, point.y);
+            }
+
+          } else {
+            var vectorX = end.x - start.x;
+            var vectorY = end.y - start.y;
+            const lineLen = Math.sqrt(vectorX * vectorX + vectorY * vectorY);
+            vectorX /= lineLen;
+            vectorY /= lineLen;
+            const normalX = vectorY;
+            const normalY = -vectorX;
+
+            const headD = startR + arrowLength + (lineLen - startR - endR - arrowLength) * arrowRelPos;
+            ctx.moveTo(start.x + headD * vectorX, start.y + headD * vectorY);
+            const lineTo = (v, n) => ctx.lineTo(start.x + v * vectorX + n * normalX, start.y + v * vectorY + n * normalY);
+            lineTo(headD - arrowLength, -arrowHalfWidth);
+            lineTo(headD - arrowLength * (1 - ARROW_VLEN_RATIO), 0);
+            lineTo(headD - arrowLength, arrowHalfWidth);
+          }
+
+          ctx.closePath();
           ctx.fillStyle = arrowColor;
           ctx.fill();
+          return;
+
+          function getT(distance, lut) {
+            const iterator = lut[Symbol.iterator]();
+            var previousPoint = iterator.next().value;
+            if (previousPoint._d === undefined) previousPoint._d = 0
+            for (var point of iterator) {
+              if (point._d === undefined) {
+                point._d = previousPoint._d + Math.sqrt(getSquaredDistance(previousPoint, point));
+              }
+              if (distance <= point._d) {
+                return previousPoint.t + (point.t - previousPoint.t) / (point._d - previousPoint._d) * (distance - previousPoint._d);
+              }
+              previousPoint = point;
+            }
+            return 1;
+          }
+
+          function getSquaredDistance(firstPoint, secondPoint) {
+            return (firstPoint.x - secondPoint.x) ** 2 + (firstPoint.y - secondPoint.y) ** 2;
+          }
         });
         ctx.restore();
       }
