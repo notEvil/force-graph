@@ -330,34 +330,64 @@ export default Kapsule({
           // Construct bezier for curved lines
           const bzLine = link.__controlPoints && new Bezier(start.x, start.y, ...link.__controlPoints, end.x, end.y);
 
-          const getCoordsAlongLine = bzLine
-              ? t => bzLine.get(t) // get position along bezier line
-              : t => ({            // straight line: interpolate linearly
-                x: start.x + (end.x - start.x) * t || 0,
-                y: start.y + (end.y - start.y) * t || 0
-              });
+          var getCoordsAlongLine, lineLen;
+          if (bzLine) {
+            const lut = bzLine.getLUT(20);
+            getT(Infinity, lut);
+            getCoordsAlongLine = (d) => bzLine.get(getT(d, lut));
+            lineLen = lut[lut.length - 1]._d;
+          } else {
+            getCoordsAlongLine = (d) => ({
+              x: start.x + d * (end.x - start.x) / lineLen,
+              y: start.y + d * (end.y - start.y) / lineLen,
+            });
+            lineLen = getDistance(start, end);
+          }
 
-          const lineLen = bzLine
-            ? bzLine.length()
-            : Math.sqrt(Math.pow(end.x - start.x, 2) + Math.pow(end.y - start.y, 2));
+          const d = lineLen - startR - endR - arrowLength;
+          if (0 <= d) {
+            const posAlongLine = startR + arrowLength + d * arrowRelPos;
 
-          const posAlongLine = startR + arrowLength + (lineLen - startR - endR - arrowLength) * arrowRelPos;
+            const arrowHead = getCoordsAlongLine(posAlongLine);
+            const arrowTailVertex = getCoordsAlongLine(posAlongLine - arrowLength * (1 - ARROW_VLEN_RATIO));
+            const arrowTail = {
+              x: arrowHead.x + (arrowTailVertex.x - arrowHead.x) / (1 - ARROW_VLEN_RATIO),
+              y: arrowHead.y + (arrowTailVertex.y - arrowHead.y) / (1 - ARROW_VLEN_RATIO),
+            };
 
-          const arrowHead = getCoordsAlongLine(posAlongLine / lineLen);
-          const arrowTail = getCoordsAlongLine((posAlongLine - arrowLength) / lineLen);
-          const arrowTailVertex = getCoordsAlongLine((posAlongLine - arrowLength * (1 - ARROW_VLEN_RATIO)) / lineLen);
+            const arrowTailAngle = Math.atan2(arrowHead.y - arrowTail.y, arrowHead.x - arrowTail.x) - Math.PI / 2;
 
-          const arrowTailAngle = Math.atan2(arrowHead.y - arrowTail.y, arrowHead.x - arrowTail.x) - Math.PI / 2;
+            ctx.beginPath();
 
-          ctx.beginPath();
+            ctx.moveTo(arrowHead.x, arrowHead.y);
+            ctx.lineTo(arrowTail.x + arrowHalfWidth * Math.cos(arrowTailAngle), arrowTail.y + arrowHalfWidth * Math.sin(arrowTailAngle));
+            ctx.lineTo(arrowTailVertex.x, arrowTailVertex.y);
+            ctx.lineTo(arrowTail.x - arrowHalfWidth * Math.cos(arrowTailAngle), arrowTail.y - arrowHalfWidth * Math.sin(arrowTailAngle));
 
-          ctx.moveTo(arrowHead.x, arrowHead.y);
-          ctx.lineTo(arrowTail.x + arrowHalfWidth * Math.cos(arrowTailAngle), arrowTail.y + arrowHalfWidth * Math.sin(arrowTailAngle));
-          ctx.lineTo(arrowTailVertex.x, arrowTailVertex.y);
-          ctx.lineTo(arrowTail.x - arrowHalfWidth * Math.cos(arrowTailAngle), arrowTail.y - arrowHalfWidth * Math.sin(arrowTailAngle));
+            ctx.fillStyle = arrowColor;
+            ctx.fill();
+          }
+          return;
 
-          ctx.fillStyle = arrowColor;
-          ctx.fill();
+          function getT(distance, lut) {
+            const iterator = lut[Symbol.iterator]();
+            var previousPoint = iterator.next().value;
+            if (previousPoint._d === undefined) previousPoint._d = 0
+            for (var point of iterator) {
+              if (point._d === undefined) {
+                point._d = previousPoint._d + getDistance(previousPoint, point);
+              }
+              if (distance <= point._d) {
+                return previousPoint.t + (point.t - previousPoint.t) / (point._d - previousPoint._d) * (distance - previousPoint._d);
+              }
+              previousPoint = point;
+            }
+            return 1;
+          }
+
+          function getDistance(firstPoint, secondPoint) {
+            return Math.sqrt(Math.pow(firstPoint.x - secondPoint.x, 2) + Math.pow(firstPoint.y - secondPoint.y, 2));
+          }
         });
         ctx.restore();
       }
