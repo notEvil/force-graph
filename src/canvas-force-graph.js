@@ -330,23 +330,60 @@ export default Kapsule({
           // Construct bezier for curved lines
           const bzLine = link.__controlPoints && new Bezier(start.x, start.y, ...link.__controlPoints, end.x, end.y);
 
-          const getCoordsAlongLine = bzLine
-              ? t => bzLine.get(t) // get position along bezier line
-              : t => ({            // straight line: interpolate linearly
-                x: start.x + (end.x - start.x) * t || 0,
-                y: start.y + (end.y - start.y) * t || 0
-              });
+          var arrowHead, arrowTailVertex;
+          if (bzLine) {
+            var headT, tailT;
+            if (arrowRelPos == 1) {
+              // head
+              headT = getT(1, -0.05, end, endR, bzLine);
+              if (headT < 0) return;
+              arrowHead = bzLine.get(headT);
+              // tail
+              tailT = getT(headT, -0.05, arrowHead, arrowLength * (1 - ARROW_VLEN_RATIO), bzLine);
+              if (tailT < 0) return;
+              arrowTailVertex = bzLine.get(tailT);
+            } else if (arrowRelPos == 0) {
+              // tail
+              tailT = getT(0, 0.05, start, startR, bzLine);
+              if (1 < tailT) return;
+              tailT = getT(tailT, 0.05, bzLine.get(tailT), arrowLength * ARROW_VLEN_RATIO, bzLine);
+              if (1 < tailT) return;
+              arrowTailVertex = bzLine.get(tailT);
+              // head
+              headT = getT(tailT, 0.05, arrowTailVertex, arrowLength * (1 - ARROW_VLEN_RATIO), bzLine);
+              if (1 < headT) return;
+              arrowHead = bzLine.get(headT);
+            } else {
+              // head
+              tailT = getT(0, 0.05, start, startR, bzLine);
+              if (1 < tailT) return;
+              headT = getT(tailT, 0.05, bzLine.get(tailT), arrowLength, bzLine) * (1 - arrowRelPos) + getT(1, -0.05, end, endR, bzLine) * arrowRelPos;
+              if (!(0 <= headT && headT <= 1)) return;
+              arrowHead = bzLine.get(headT);
+              // tail
+              tailT = getT(headT, -0.05, arrowHead, arrowLength * (1 - ARROW_VLEN_RATIO), bzLine);
+              if (tailT < 0) return;
+              arrowTailVertex = bzLine.get(tailT);
+            }
+          } else {
+            const lineLen = getDistance(start, end);
+            const getCoordsAlongLine = (d) => ({
+              x: start.x + d * (end.x - start.x) / lineLen,
+              y: start.y + d * (end.y - start.y) / lineLen,
+            });
 
-          const lineLen = bzLine
-            ? bzLine.length()
-            : Math.sqrt(Math.pow(end.x - start.x, 2) + Math.pow(end.y - start.y, 2));
+            const d = lineLen - startR - endR - arrowLength;
+            if (d < 0) return;
+            const posAlongLine = startR + arrowLength + d * arrowRelPos;
 
-          const posAlongLine = startR + arrowLength + (lineLen - startR - endR - arrowLength) * arrowRelPos;
+            arrowHead = getCoordsAlongLine(posAlongLine);
+            arrowTailVertex = getCoordsAlongLine(posAlongLine - arrowLength * (1 - ARROW_VLEN_RATIO));
+          }
 
-          const arrowHead = getCoordsAlongLine(posAlongLine / lineLen);
-          const arrowTail = getCoordsAlongLine((posAlongLine - arrowLength) / lineLen);
-          const arrowTailVertex = getCoordsAlongLine((posAlongLine - arrowLength * (1 - ARROW_VLEN_RATIO)) / lineLen);
-
+          const arrowTail = {
+            x: arrowHead.x + (arrowTailVertex.x - arrowHead.x) / (1 - ARROW_VLEN_RATIO),
+            y: arrowHead.y + (arrowTailVertex.y - arrowHead.y) / (1 - ARROW_VLEN_RATIO),
+          };
           const arrowTailAngle = Math.atan2(arrowHead.y - arrowTail.y, arrowHead.x - arrowTail.x) - Math.PI / 2;
 
           ctx.beginPath();
@@ -358,6 +395,26 @@ export default Kapsule({
 
           ctx.fillStyle = arrowColor;
           ctx.fill();
+          return;
+
+          function getT(t1, step, point, distance, bezier) {
+            var p1 = point, d1 = 0, t2, p2, d2;
+            while (true) {
+              t2 = t1 + step;
+              p2 = bezier.get(t2);
+              d2 = getDistance(point, p2);
+              if (distance <= d2) {
+                return t1 + (t2 - t1) / (d2 - d1) * (distance - d1);
+              }
+              t1 = t2;
+              p1 = p2;
+              d1 = d2;
+            }
+          }
+
+          function getDistance(firstPoint, secondPoint) {
+            return Math.sqrt(Math.pow(firstPoint.x - secondPoint.x, 2) + Math.pow(firstPoint.y - secondPoint.y, 2));
+          }
         });
         ctx.restore();
       }
